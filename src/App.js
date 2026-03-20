@@ -1,25 +1,68 @@
-import logo from './logo.svg';
-import './App.css';
+import React, { useState } from "react";
+import { Layout, Typography } from "antd";
+import PdfUploader from "./components/PdfUploader";
+import RenderQA from "./components/RenderQA";
+import ChatComponent from "./components/ChatComponent";
 
-function App() {
+const chatComponentStyle = {
+  position: "fixed",
+  bottom: "0",
+  width: "80%",
+  left: "10%", // this will center it because it leaves 10% space on each side
+  marginBottom: "20px",
+};
+
+const pdfUploaderStyle = {
+  margin: "auto",
+  paddingTop: "80px",
+};
+
+const renderQAStyle = {
+  height: "50%", // adjust the height as you see fit
+  overflowY: "auto",
+};
+
+const App = () => {
+  const [conversation, setConversation] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const { Header, Content } = Layout;
+  const { Title } = Typography;
+
+  const handleResponse = (question, answer) => {
+    setConversation((prev) => [
+      ...prev,
+      { question, ragAnswer: answer?.ragAnswer, mcpAnswer: answer?.mcpAnswer },
+    ]);
+  };
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <>
+      <Layout style={{ height: "100vh", backgroundColor: "white" }}>
+        <Header style={{ display: "flex", alignItems: "center" }}>
+          <Title style={{ color: "white" }}>AgentAI</Title>
+        </Header>
+        <Content style={{ width: "80%", margin: "auto" }}>
+          <div style={pdfUploaderStyle}>
+            <PdfUploader />
+          </div>
+          <br />
+          <br />
+          <div style={renderQAStyle}>
+            <RenderQA conversation={conversation} isLoading={isLoading} />
+          </div>
+          <br />
+          <br />
+          <div style={chatComponentStyle}>
+            <ChatComponent
+              handleResponse={handleResponse}
+              isLoading={isLoading}
+              setIsLoading={setIsLoading}
+            />
+          </div>
+        </Content>
+      </Layout>
+    </>
   );
-}
+};
 
 export default App;
