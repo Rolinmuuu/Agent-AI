@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import { Input, Button } from "antd";
-import { AudioOutlined, BoldOutlined } from "@ant-design/icons";
+import { AudioOutlined } from "@ant-design/icons";
 import SpeechRecognition, {
   useSpeechRecognition,
 } from "react-speech-recognition";
@@ -17,7 +16,7 @@ const searchContainer = {
 };
 
 const ChatComponent = (props) => {
-  const { handleResponse, isLoading, setIsLoading } = props;
+  const { handleStreamStart, handleRagUpdate, handleMcpResponse, isLoading, setIsLoading } = props;
 
   const [searchValue, setSearchValue] = useState("");
   const [isChatModeOn, setIsChatModeOn] = useState(false);
@@ -54,8 +53,7 @@ const ChatComponent = (props) => {
 
   useEffect(() => {
     if (!listening && Boolean(transcript)) {
-      // 这是什么写法，IFFE？
-      (async () => await onSearch(transcript))();
+      onSearch(transcript);
       setIsRecording(false);
     }
   }, [listening, transcript]);
@@ -101,25 +99,39 @@ const ChatComponent = (props) => {
     }
   }
 
-  const onSearch = async (question) => {
+  const onSearch = (question) => {
     setSearchValue("");
     setIsLoading(true);
-    try {
-      const response = await axios.get(`${DOMAIN}/chat`, {
-        params: {
-          question: question,
-        },
-      });
-      handleResponse(question, response.data);
-      if (isChatModeOn) {
-        talk(response.data);
+    handleStreamStart(question);
+
+    let fullRagText = "";
+
+    const eventSource = new EventSource(
+      `${DOMAIN}/chat?question=${encodeURIComponent(question)}`
+    );
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.ragAnswer !== undefined) {
+        fullRagText = data.ragAnswer;
+        handleRagUpdate(data.ragAnswer);
+      } else if (data.mcpAnswer !== undefined) {
+        handleMcpResponse(data.mcpAnswer);
+      } else if (data.done) {
+        eventSource.close();
+        setIsLoading(false);
+        if (isChatModeOn) talk(fullRagText);
+      } else if (data.error) {
+        eventSource.close();
+        setIsLoading(false);
       }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
       setIsLoading(false);
-    } catch (error) {
-      handleResponse(question, "Something went wrong, please try again.");
-    } finally {
-      setIsLoading(false);
-    }
+    };
   };
   const handleChange = (e) => {
     setSearchValue(e.target.value);

@@ -28,11 +28,33 @@ const App = () => {
   const { Header, Content } = Layout;
   const { Title } = Typography;
 
-  const handleResponse = (question, answer) => {
+  const handleStreamStart = (question) => {
     setConversation((prev) => [
       ...prev,
-      { question, ragAnswer: answer?.ragAnswer, mcpAnswer: answer?.mcpAnswer },
+      { question, ragAnswer: "", mcpAnswer: "" },
     ]);
+  };
+
+  const handleRagUpdate = (ragAnswer) => {
+    setConversation((prev) => {
+      const updated = [...prev];
+      updated[updated.length - 1] = {
+        ...updated[updated.length - 1],
+        ragAnswer,
+      };
+      return updated;
+    });
+  };
+
+  const handleMcpResponse = (mcpAnswer) => {
+    setConversation((prev) => {
+      const updated = [...prev];
+      updated[updated.length - 1] = {
+        ...updated[updated.length - 1],
+        mcpAnswer,
+      };
+      return updated;
+    });
   };
 
   return (
@@ -54,7 +76,9 @@ const App = () => {
           <br />
           <div style={chatComponentStyle}>
             <ChatComponent
-              handleResponse={handleResponse}
+              handleStreamStart={handleStreamStart}
+              handleRagUpdate={handleRagUpdate}
+              handleMcpResponse={handleMcpResponse}
               isLoading={isLoading}
               setIsLoading={setIsLoading}
             />
