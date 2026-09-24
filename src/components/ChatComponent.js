@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { Input, Button } from "antd";
+import { Input, Button, message } from "antd";
 import { AudioOutlined } from "@ant-design/icons";
 import SpeechRecognition, {
   useSpeechRecognition,
 } from "react-speech-recognition";
 import Speech from "speak-tts";
+import { API_BASE, SESSION_ID } from "../config";
 
 const { Search } = Input;
-
-const DOMAIN = "http://localhost:5001";
 
 const searchContainer = {
   display: "flex",
@@ -107,7 +106,7 @@ const ChatComponent = (props) => {
     let fullRagText = "";
 
     const eventSource = new EventSource(
-      `${DOMAIN}/chat?question=${encodeURIComponent(question)}`
+      `${API_BASE}/chat?sessionId=${SESSION_ID}&question=${encodeURIComponent(question)}`
     );
 
     eventSource.onmessage = (event) => {
@@ -117,7 +116,7 @@ const ChatComponent = (props) => {
         fullRagText = data.ragAnswer;
         handleRagUpdate(data.ragAnswer);
       } else if (data.mcpAnswer !== undefined) {
-        handleMcpResponse(data.mcpAnswer);
+        handleMcpResponse(data.mcpAnswer, data.mcpError);
       } else if (data.done) {
         eventSource.close();
         setIsLoading(false);
@@ -125,12 +124,14 @@ const ChatComponent = (props) => {
       } else if (data.error) {
         eventSource.close();
         setIsLoading(false);
+        message.error(data.error);
       }
     };
 
     eventSource.onerror = () => {
       eventSource.close();
       setIsLoading(false);
+      message.error("Could not reach the server. Upload a PDF first, then ask again.");
     };
   };
   const handleChange = (e) => {

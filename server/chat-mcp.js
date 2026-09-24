@@ -5,44 +5,43 @@ import { dirname, join } from "path";
 import { ChatOpenAI } from "@langchain/openai";
 import { PromptTemplate } from "@langchain/core/prompts";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SUMMARY_MODEL = process.env.SUMMARY_MODEL || "gpt-4o";
 
-// Reusable MCP client instance
+// One MCP client (and one stdio child process) shared by all requests.
 let client = null;
-let transport = null;
-let isConnecting = false;
 let connectionPromise = null;
 
 const ensureConnected = async () => {
-  if (client && transport) {
-    return;
-  }
-  if (isConnecting && connectionPromise) {
-    await connectionPromise;
-    return;
-  }
-  isConnecting = true;
-  connectionPromise = (async () => {
-    try {
-      client = new Client({
-        name: "chat-client",
-        version: "1.0.0",
-      });
-      const serverPath = join(__dirname, "mcp-server.js");
-      transport = new StdioClientTransport({
+  if (client) return;
+  if (!connectionPromise) {
+    connectionPromise = (async () => {
+      const next = new Client({ name: "chat-client", version: "1.0.0" });
+      const transport = new StdioClientTransport({
         command: "node",
-        args: [serverPath],
-        env: {
-          ...process.env,
-        },
+        args: [join(__dirname, "mcp-server.js")],
+        env: { ...process.env },
       });
-      await client.connect(transport);
-    } finally {
-      isConnecting = false;
+      await next.connect(transport);
+      client = next;
+    })().finally(() => {
       connectionPromise = null;
-    }
-  })();
+    });
+  }
+  // Every caller, including the one that started the connection, waits for the
+  // handshake. The previous version returned early for the first caller, so its
+  // tool call could race the MCP initialize request.
+  await connectionPromise;
+};
+
+const resetClient = async () => {
+  const stale = client;
+  client = null;
+  if (stale) {
+    try {
+      await stale.close();
+    } catch {}
+  }
 };
 
 const chatMCP = async (query) => {
@@ -51,41 +50,23 @@ const chatMCP = async (query) => {
     await ensureConnected();
     const toolResult = await client.callTool({
       name: "search_web",
-      arguments: {
-        query,
-        num: 5,
-      },
+      arguments: { query, num: 5 },
     });
-    let searchResults = "";
-    if (toolResult.content && toolResult.content.length > 0) {
-      searchResults = toolResult.content[0].text;
-    }
-    const model = new ChatOpenAI({
-      model: "gpt-4o",
-      apiKey,
-    });
+    const searchResults = toolResult.content?.[0]?.text || "";
 
-    const answerTemplate = `Summarize the search result.
-        Search Results: {searchResults}
-        Helpful Answer:`;
-
-    const prompt = PromptTemplate.fromTemplate(answerTemplate);
+    const prompt = PromptTemplate.fromTemplate(
+      `Summarize the search result.
+Search Results: {searchResults}
+Helpful Answer:`,
+    );
     const formattedPrompt = await prompt.format({
       searchResults: searchResults || "No search results available",
     });
+    const model = new ChatOpenAI({ model: SUMMARY_MODEL, apiKey });
     const response = await model.invoke(formattedPrompt);
-    const finalAnswer = response.content;
-    return {
-      text: finalAnswer,
-    };
+    return { text: response.content };
   } catch (error) {
-    if (client) {
-      try {
-        await client.close();
-      } catch {}
-      client = null;
-      transport = null;
-    }
+    await resetClient();
     throw error;
   }
 };

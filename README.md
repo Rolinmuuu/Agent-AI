@@ -1,165 +1,106 @@
-# Agent AI — Full-Stack RAG & MCP-Driven Q&A Agent
+# Agent AI — PDF Q&A with RAG, streaming and MCP web search
 
-A voice-enabled, full-stack AI Q&A application that combines a **RAG (Retrieval-Augmented Generation)** pipeline with a **Model Context Protocol (MCP)** web search server. Upload a PDF, ask questions in text or voice, and receive two parallel answers — one grounded in your document, one from live web search — streamed in real time.
-
----
+A full-stack document Q&A app. Upload a PDF, ask questions by text or voice, and get
+two answers: one grounded in your document (RAG, streamed token by token) and one
+from live web search through a Model Context Protocol (MCP) tool server.
 
 ## Features
 
-### RAG Pipeline (Document Q&A)
-- **PDF ingestion** — drag-and-drop upload via Multer
-- **Text splitting** — `RecursiveCharacterTextSplitter` with `chunkSize: 500`, `chunkOverlap: 50`
-- **Vector embeddings** — OpenAI `text-embedding-ada-002` via `OpenAIEmbeddings`
-- **In-memory vector store** — `MemoryVectorStore` with **per-file caching**: same PDF is embedded only once per server session, subsequent queries skip re-processing
-- **Semantic retrieval** — top-k similarity search via LangChain retriever
-- **Grounded generation** — GPT-5 answers strictly from retrieved context
+**Document answers (RAG)**
+- PDF upload (drag and drop), split with `RecursiveCharacterTextSplitter` (500 / 50 overlap)
+- OpenAI embeddings (`text-embedding-3-small` by default) in an in-memory vector store,
+  cached per uploaded file with an LRU limit, top-6 retrieval
+- Answers constrained to the retrieved context and streamed over Server-Sent Events
+- Multi-turn: the session's chat history is injected into every prompt (last 20 exchanges)
 
-### MCP Web Search
-- **MCP server** — `@modelcontextprotocol/sdk` over stdio transport
-- **`search_web` tool** — SerpAPI Google search, returns top-N results
-- **MCP client** — reusable singleton connection with auto-reconnect on error
-- **LangChain summarization** — GPT-5 condenses raw search results into a concise answer
+**Web answers (MCP)**
+- `mcp-server.js` exposes a `search_web` tool (SerpAPI) over stdio
+- `chat-mcp.js` keeps one MCP client connection, waits for the handshake before calling
+  the tool, and reconnects after errors; results are summarised by a chat model
+- Runs concurrently with the document answer. If web search fails (no key, network,
+  quota), the document answer still completes and the UI shows "Web search unavailable"
 
-### Dual-Channel Parallel Answers
-- RAG (document) and MCP (web search) run **concurrently** via `Promise.all`
-- Both answers streamed back in the same SSE connection
-- Results displayed side by side: blue bubble (document) + green bubble (web)
+**Sessions and uploads**
+- Every browser tab gets its own session id; uploaded file and chat history are stored
+  per session, so users never see each other's document or conversation
+- Uploads are PDF-only, max 20 MB, stored under a random server-side name
+- Idle sessions expire after 1 hour and their uploaded files are deleted
 
-### Streaming (Server-Sent Events)
-- Backend streams RAG answer token-by-token via SSE (`/chat` endpoint)
-- Frontend receives chunks with `EventSource`, renders a real-time typewriter effect
-- MCP answer appended after RAG stream completes
-- `{ done: true }` signal cleanly closes the connection
-
-### Conversation History (Multi-Turn)
-- Full chat history maintained server-side using LangChain `HumanMessage` / `AIMessage`
-- `ChatPromptTemplate` + `MessagesPlaceholder` injects history into every prompt
-- Model understands follow-up questions referencing prior answers
-- `POST /reset-chat-history` endpoint to clear history
-
-### Voice Interface
-- **Speech-to-Text (STT)** — `react-speech-recognition` (Web Speech API)
-- **Text-to-Speech (TTS)** — `speak-tts` reads RAG answers aloud
-- **Chat Mode** — continuous voice loop: AI speaks answer → mic auto-activates → user replies
-
----
+**Voice**
+- Speech-to-text (`react-speech-recognition`) and text-to-speech (`speak-tts`);
+  "Chat Mode" reads the answer aloud and reopens the microphone. Requires a browser with
+  the Web Speech API (Chrome).
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   React Frontend                    │
-│  PdfUploader → ChatComponent (SSE) → RenderQA       │
-│  STT (react-speech-recognition) + TTS (speak-tts)  │
-└──────────────────────┬──────────────────────────────┘
-                       │ GET /chat (SSE)
-                       │ POST /upload
-┌──────────────────────▼──────────────────────────────┐
-│              Express Backend (Node.js)              │
-│                                                     │
-│  ┌──────────────────┐   ┌────────────────────────┐  │
-│  │   RAG Pipeline   │   │     MCP Client         │  │
-│  │  chat.js         │   │   chat-mcp.js          │  │
-│  │                  │   │                        │  │
-│  │ PDFLoader        │   │  StdioClientTransport  │  │
-│  │ TextSplitter     │   │  → mcp-server.js       │  │
-│  │ OpenAIEmbeddings │   │    └ SerpAPI search    │  │
-│  │ MemoryVectorStore│   │  GPT-5 summarization   │  │
-│  │ GPT-5 (stream)   │   │                        │  │
-│  └──────────────────┘   └────────────────────────┘  │
-│          Promise.all([RAG stream, MCP])              │
-└─────────────────────────────────────────────────────┘
+React (Ant Design)                         Express
+┌──────────────────────────────┐           ┌───────────────────────────────────────────┐
+│ PdfUploader ── POST /upload ─┼──────────►│ session store (per tab id)                │
+│ ChatComponent ─ GET /chat SSE┼──────────►│  ├─ chat.js      PDF → chunks → embeddings │
+│ RenderQA  (document + web)   │◄──────────┼  │               → retrieve → stream       │
+│ STT / TTS                    │  events   │  └─ chat-mcp.js  MCP client ─► mcp-server │
+└──────────────────────────────┘           │                  (search_web / SerpAPI)   │
+                                           └───────────────────────────────────────────┘
+SSE events: {ragAnswer} … {ragAnswer} → {mcpAnswer | mcpError} → {done}   or {error}
 ```
 
----
+## Getting started
 
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React, Ant Design |
-| Voice | react-speech-recognition, speak-tts |
-| Backend | Node.js, Express, Multer |
-| LLM | OpenAI GPT-5 |
-| RAG | LangChain (`@langchain/openai`, `@langchain/community`, `@langchain/textsplitters`) |
-| MCP | `@modelcontextprotocol/sdk` |
-| Web Search | SerpAPI |
-| Streaming | Server-Sent Events (SSE) |
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- OpenAI API key
-- SerpAPI API key
-
-### Environment Variables
-
-Create a `.env` file inside the `server/` directory:
-
-```
-OPENAI_API_KEY=your_openai_api_key
-SERPAPI_API_KEY=your_serpapi_api_key
-```
-
-### Install & Run
-
-**Backend:**
+Requirements: Node.js 18+, an OpenAI API key, and (optional) a SerpAPI key for web answers.
 
 ```bash
-cd server
-npm install
-node server.js
-# Server runs on http://localhost:5001
+# server/.env
+OPENAI_API_KEY=...
+SERPAPI_API_KEY=...          # optional; without it only document answers are returned
+# optional overrides: CHAT_MODEL, EMBEDDING_MODEL, SUMMARY_MODEL, PORT (default 5001)
 ```
-
-**Frontend:**
 
 ```bash
-# from project root
-npm install
-npm start
-# App runs on http://localhost:3000
+cd server && npm ci && npm start      # http://localhost:5001
+npm ci && npm start                   # http://localhost:3000 (from the project root)
 ```
 
-### Usage
+Set `REACT_APP_API_BASE` when building the frontend for a different backend URL.
 
-1. Open `http://localhost:3000`
-2. Drag and drop a PDF file into the upload area
-3. Type a question in the search bar and press Enter
-4. Two answers appear in real time:
-   - **RAG Answer** (blue) — sourced from your document
-   - **MCP Answer** (green) — sourced from live web search
-5. Toggle **Chat Mode** to switch to hands-free voice conversation
+## Tests
 
----
+```bash
+cd server && npm test     # HTTP layer with fake RAG/MCP functions — no API keys needed
+CI=true npm test          # frontend rendering tests
+```
 
-## API Endpoints
+The server tests cover session isolation, per-session history, upload validation,
+reset, history trimming / session expiry, and a failing web search not breaking the
+document answer.
 
-| Method | Endpoint | Description |
+## API
+
+| Method | Endpoint | Notes |
 |---|---|---|
-| `POST` | `/upload` | Upload a PDF file |
-| `GET` | `/chat?question=...` | SSE stream: RAG + MCP answers |
-| `POST` | `/reset-chat-history` | Clear conversation history |
+| `POST` | `/upload` | multipart `file`; header `x-session-id` |
+| `GET` | `/chat?sessionId=…&question=…` | SSE stream (EventSource cannot send headers) |
+| `POST` | `/reset-chat-history` | header `x-session-id` |
 
----
-
-## Project Structure
+## Project structure
 
 ```
-├── server/
-│   ├── server.js          # Express server, SSE endpoint, chat history
-│   ├── chat.js            # RAG pipeline (vectorStore cache + streaming)
-│   ├── chat-mcp.js        # MCP client, GPT-5 summarization
-│   ├── mcp-server.js      # MCP server with search_web tool (SerpAPI)
-│   └── uploads/           # Uploaded PDF files
-├── src/
-│   ├── App.js             # Root component, streaming state handlers
-│   └── components/
-│       ├── ChatComponent.js   # EventSource, STT/TTS, Chat Mode
-│       ├── PdfUploader.js     # Drag-and-drop PDF upload
-│       └── RenderQA.js        # Conversation display (RAG + MCP bubbles)
+server/
+  server.js      entry point (reads .env, starts the app)
+  app.js         routes, uploads, SSE streaming; RAG / MCP functions injected for testing
+  sessions.js    per-session file + history, trimming and expiry
+  chat.js        RAG pipeline and vector-store cache
+  chat-mcp.js    MCP client + summarisation
+  mcp-server.js  MCP server exposing search_web
+  test/          node:test suite
+src/
+  config.js      API base URL and per-tab session id
+  components/    PdfUploader, ChatComponent (SSE, voice), RenderQA
 ```
+
+## Limitations
+
+- The vector store and sessions live in memory: a server restart clears them, and the
+  app runs as a single process. A persistent vector database and shared session store
+  would be the next step for multi-instance deployment.
+- There is no user authentication; the session id separates browser tabs, not accounts.

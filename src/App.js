@@ -46,12 +46,13 @@ const App = () => {
     });
   };
 
-  const handleMcpResponse = (mcpAnswer) => {
+  const handleMcpResponse = (mcpAnswer, mcpError) => {
     setConversation((prev) => {
       const updated = [...prev];
       updated[updated.length - 1] = {
         ...updated[updated.length - 1],
         mcpAnswer,
+        mcpError,
       };
       return updated;
     });

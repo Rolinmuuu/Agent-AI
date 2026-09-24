@@ -75,13 +75,15 @@ const RenderQA = (props) => {
             <div style={agentContainer}>
               <div>
                 <div style={answerContainer}>
-                  <div style={answerLabel}>RAG Answer (from document)</div>
+                  <div style={answerLabel}>Document answer (RAG)</div>
                   <div style={ragAnswerStyle}>{each.ragAnswer}</div>
                 </div>
-                <div style={answerContainer}>
-                  <div style={answerLabel}>MCQ Answer (from web search)</div>
-                  <div style={mcpAnswerStyle}>{each.mcpAnswer}</div>
-                </div>
+                {(each.mcpAnswer || each.mcpError) && (
+                  <div style={answerContainer}>
+                    <div style={answerLabel}>Web answer (via MCP search)</div>
+                    <div style={mcpAnswerStyle}>{each.mcpAnswer || each.mcpError}</div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -2,17 +2,17 @@ import React from "react";
 import { Upload, message } from "antd";
 import axios from "axios";
 import { InboxOutlined } from "@ant-design/icons";
+import { API_BASE, SESSION_ID } from "../config";
 
 const { Dragger } = Upload;
-
-const DOMAIN = "http://localhost:5001";
 
 const uploadToBackend = async (file) => {
   const formData = new FormData();
   formData.append("file", file);
   try {
-    const response = await axios.post(`${DOMAIN}/upload`, formData);
-    return response;
+    return await axios.post(`${API_BASE}/upload`, formData, {
+      headers: { "x-session-id": SESSION_ID },
+    });
   } catch (error) {
     console.error("Error uploading file:", error.response?.data);
     return null;
@@ -21,7 +21,9 @@ const uploadToBackend = async (file) => {
 
 const attributes = {
   name: "file",
-  multiple: true,
+  multiple: false,
+  maxCount: 1,
+  accept: ".pdf,application/pdf",
   customRequest: async ({ file, onSuccess, onError }) => {
     try {
       const response = await uploadToBackend(file);

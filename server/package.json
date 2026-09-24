@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test test/app.test.js"
   },
   "keywords": [],
   "author": "",
@@ -25,5 +25,8 @@
     "serpapi": "^2.2.1",
     "zod": "^4.1.13"
   },
-  "type": "module"
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  }
 }
