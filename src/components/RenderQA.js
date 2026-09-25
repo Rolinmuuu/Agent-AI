@@ -1,97 +1,77 @@
 import React from "react";
-import { Spin } from "antd";
+import { IconDoc, IconGlobe, IconSpark } from "./Icons";
 
-const containerStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  flexDirection: "column",
-  marginBottom: "20px",
-};
+const Thinking = ({ label }) => (
+  <div className="thinking">
+    <span className="dots">
+      <i />
+      <i />
+      <i />
+    </span>
+    {label}
+  </div>
+);
 
-const userContainer = {
-  textAlign: "right",
-};
-
-const agentContainer = {
-  textAlign: "left",
-};
-
-const userStyle = {
-  maxWidth: "50%",
-  textAlign: "left",
-  backgroundColor: "#1677FF",
-  color: "white",
-  display: "inline-block",
-  borderRadius: "10px",
-  padding: "10px",
-  marginBottom: "10px",
-};
-
-const answerContainer = {
-  marginBottom: "10px",
-};
-
-const answerLabel = {
-  fontSize: "12px",
-  fontWeight: "bold",
-  color: "#666",
-  marginBottom: "5px",
-};
-
-const ragAnswerStyle = {
-  maxWidth: "50%",
-  textAlign: "left",
-  backgroundColor: "#E6F7FF",
-  color: "black",
-  display: "inline-block",
-  borderRadius: "10px",
-  padding: "10px",
-  marginBottom: "5px",
-  borderLeft: "4px solid #1890FF",
-};
-
-const mcpAnswerStyle = {
-  maxWidth: "50%",
-  textAlign: "left",
-  backgroundColor: "#F6FFED",
-  color: "black",
-  display: "inline-block",
-  borderRadius: "10px",
-  padding: "10px",
-  marginBottom: "5px",
-  borderLeft: "4px solid #52C41A",
-};
-
-const RenderQA = (props) => {
-  const { conversation, isLoading } = props;
+// One question and its two answers: the streamed document answer (RAG) and the
+// parallel web answer from the MCP search tool.
+const Exchange = ({ each, streaming, docName }) => {
+  const webPending = streaming && each.mcpAnswer === undefined && !each.mcpError;
+  const web = each.mcpAnswer || each.mcpError;
   return (
-    <>
-      {conversation?.map((each, index) => {
-        return (
-          <div key={index} style={containerStyle}>
-            <div style={userContainer}>
-              <div style={userStyle}>{each.question}</div>
+    <div className="exchange">
+      <div className="q-row">
+        <div className="q-bubble">{each.question}</div>
+      </div>
+
+      <div className="a-row">
+        <span className="avatar" aria-hidden="true">
+          <IconSpark width={16} height={16} />
+        </span>
+        <div className="a-card">
+          <div className="a-section">
+            <div className="a-label">
+              <IconDoc width={14} height={14} />
+              Document answer (RAG){docName ? <span className="a-source"> · {docName}</span> : null}
             </div>
-            <div style={agentContainer}>
-              <div>
-                <div style={answerContainer}>
-                  <div style={answerLabel}>Document answer (RAG)</div>
-                  <div style={ragAnswerStyle}>{each.ragAnswer}</div>
-                </div>
-                {(each.mcpAnswer || each.mcpError) && (
-                  <div style={answerContainer}>
-                    <div style={answerLabel}>Web answer (via MCP search)</div>
-                    <div style={mcpAnswerStyle}>{each.mcpAnswer || each.mcpError}</div>
-                  </div>
-                )}
-              </div>
-            </div>
+            {each.ragAnswer ? (
+              <div className={`a-text${streaming ? " streaming" : ""}`}>{each.ragAnswer}</div>
+            ) : streaming ? (
+              <Thinking label="Reading the document…" />
+            ) : (
+              <div className="a-text muted">No answer was returned.</div>
+            )}
           </div>
-        );
-      })}
-      {isLoading && <Spin size="large" style={{ margin: "10px auto" }} />}
-    </>
+
+          {(web || webPending) && (
+            <div className="a-section web">
+              <div className="a-label">
+                <IconGlobe width={14} height={14} />
+                Web answer (via MCP search)
+              </div>
+              {webPending ? (
+                <Thinking label="Checking the web in parallel…" />
+              ) : (
+                <div className={`a-text${each.mcpError && !each.mcpAnswer ? " muted" : ""}`}>{web}</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
+
+const RenderQA = ({ conversation, isLoading, docName }) => (
+  <>
+    {conversation?.map((each, index) => (
+      <Exchange
+        key={index}
+        each={each}
+        docName={docName}
+        streaming={isLoading && index === conversation.length - 1}
+      />
+    ))}
+  </>
+);
 
 export default RenderQA;

@@ -4,6 +4,8 @@ A full-stack document Q&A app. Upload a PDF, ask questions by text or voice, and
 two answers: one grounded in your document (RAG, streamed token by token) and one
 from live web search through a Model Context Protocol (MCP) tool server.
 
+![Upload screen](docs/ui-home.png)
+
 ## Features
 
 **Document answers (RAG)**
@@ -19,6 +21,15 @@ from live web search through a Model Context Protocol (MCP) tool server.
   the tool, and reconnects after errors; results are summarised by a chat model
 - Runs concurrently with the document answer. If web search fails (no key, network,
   quota), the document answer still completes and the UI shows "Web search unavailable"
+
+**Interface**
+- React client with a document sidebar (upload progress, ready / error state, replace file),
+  suggested first questions, and one answer card per question with the document answer
+  and the web answer in separate sections
+- Answers stream in with a live cursor; each section shows its own progress while waiting
+- Questions stay disabled until a PDF is uploaded; "New chat" also clears the server-side history
+- Optional voice mode: speak the question, hear the document answer read back
+- Responsive down to phone width
 
 **Sessions and uploads**
 - Every browser tab gets its own session id; uploaded file and chat history are stored

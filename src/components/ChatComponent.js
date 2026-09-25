@@ -1,178 +1,115 @@
-import React, { useState, useEffect } from "react";
-import { Input, Button, message } from "antd";
-import { AudioOutlined } from "@ant-design/icons";
-import SpeechRecognition, {
-  useSpeechRecognition,
-} from "react-speech-recognition";
+import React, { useEffect, useRef, useState } from "react";
+import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
 import Speech from "speak-tts";
-import { API_BASE, SESSION_ID } from "../config";
+import { IconMic, IconSend } from "./Icons";
 
-const { Search } = Input;
-
-const searchContainer = {
-  display: "flex",
-  justifyContent: "center",
-};
-
-const ChatComponent = (props) => {
-  const { handleStreamStart, handleRagUpdate, handleMcpResponse, isLoading, setIsLoading } = props;
-
-  const [searchValue, setSearchValue] = useState("");
-  const [isChatModeOn, setIsChatModeOn] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+// Composer: typed questions, plus an optional voice mode that listens for a
+// question and reads the document answer back aloud.
+const ChatComponent = ({ onAsk, isLoading, disabled, lastAnswer, answerVersion }) => {
+  const [value, setValue] = useState("");
+  const [voiceOn, setVoiceOn] = useState(false);
   const [speech, setSpeech] = useState(null);
+  const area = useRef(null);
+  const spokenVersion = useRef(answerVersion);
 
-  const {
-    transcript,
-    listening,
-    resetTranscript,
-    browserSupportsSpeechRecognition,
-    isMicrophoneAvailable,
-  } = useSpeechRecognition();
+  const { transcript, listening, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
 
   useEffect(() => {
-    const initialized_speech = new Speech();
-    initialized_speech
-      .init({
-        volume: 1,
-        rate: 1,
-        pitch: 1,
-        lang: "en-US",
-        voice: "Google US English",
-        splitSentences: false,
-      })
-      .then(() => {
-        console.log("Speech is ready");
-        setSpeech(initialized_speech);
-      })
-      .catch((e) => {
-        console.error("Speech failed, please try again.", e);
-      });
+    const s = new Speech();
+    s.init({ volume: 1, rate: 1, pitch: 1, lang: "en-US", splitSentences: false })
+      .then(() => setSpeech(s))
+      .catch(() => setSpeech(null));
   }, []);
 
+  // A finished voice transcript becomes a question.
   useEffect(() => {
-    if (!listening && Boolean(transcript)) {
-      onSearch(transcript);
-      setIsRecording(false);
+    if (voiceOn && !listening && transcript) {
+      onAsk(transcript);
+      resetTranscript();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listening, transcript]);
 
-  const talk = (what2say) => {
-    speech.speak({
-        text: what2say,
-        queue: false,
-        listeners: {
-            onstart: () => {},
-            onend: () => {},
-            onresume: () => {},
-            onboundary: () => {},
-        }
-    })
-    .then(() => {
-        userStartConvo();
-    })
-    .catch((e) => {
-        console.error("Speech failed, please try again.", e);
-    });
+  // In voice mode, read each new finished answer aloud, then listen again.
+  useEffect(() => {
+    if (!voiceOn || isLoading || answerVersion === spokenVersion.current) return;
+    spokenVersion.current = answerVersion;
+    if (!speech || !lastAnswer) return;
+    speech
+      .speak({ text: lastAnswer, queue: false })
+      .then(() => voiceOn && SpeechRecognition.startListening())
+      .catch(() => {});
+  }, [voiceOn, isLoading, answerVersion, lastAnswer, speech]);
+
+  useEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [value]);
+
+  const submit = () => {
+    const q = value.trim();
+    if (!q || isLoading || disabled) return;
+    onAsk(q);
+    setValue("");
   };
 
-  const userStartConvo = () => {
-    SpeechRecognition.startListening();
-    setIsRecording(true);
-    resetTranscript();
-  }
-
-  const chatModeClickHandler = () => {
-    setIsChatModeOn(!isChatModeOn);
-    setIsRecording(false);
-    SpeechRecognition.stopListening();
-  }
-
-  const recordingClickHandler = () => {
-    if (isRecording) {
-        setIsRecording(false);
-        SpeechRecognition.stopListening();
+  const toggleVoice = () => {
+    if (voiceOn) {
+      SpeechRecognition.stopListening();
+      if (speech) speech.cancel();
+      setVoiceOn(false);
     } else {
-        setIsRecording(true);
-        SpeechRecognition.startListening();
+      setVoiceOn(true);
+      resetTranscript();
+      SpeechRecognition.startListening();
     }
-  }
-
-  const onSearch = (question) => {
-    setSearchValue("");
-    setIsLoading(true);
-    handleStreamStart(question);
-
-    let fullRagText = "";
-
-    const eventSource = new EventSource(
-      `${API_BASE}/chat?sessionId=${SESSION_ID}&question=${encodeURIComponent(question)}`
-    );
-
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-
-      if (data.ragAnswer !== undefined) {
-        fullRagText = data.ragAnswer;
-        handleRagUpdate(data.ragAnswer);
-      } else if (data.mcpAnswer !== undefined) {
-        handleMcpResponse(data.mcpAnswer, data.mcpError);
-      } else if (data.done) {
-        eventSource.close();
-        setIsLoading(false);
-        if (isChatModeOn) talk(fullRagText);
-      } else if (data.error) {
-        eventSource.close();
-        setIsLoading(false);
-        message.error(data.error);
-      }
-    };
-
-    eventSource.onerror = () => {
-      eventSource.close();
-      setIsLoading(false);
-      message.error("Could not reach the server. Upload a PDF first, then ask again.");
-    };
   };
-  const handleChange = (e) => {
-    setSearchValue(e.target.value);
-  };
+
   return (
-    <div style={searchContainer}>
-      { !isChatModeOn && (
-        <Search
-        placeholder="Input your question"
-        enterButton="Search"
-        size="large"
-        style={{ width: 500 }}
-        onSearch={onSearch}
-        loading={isLoading}
-        value={searchValue}
-        onChange={handleChange}
+    <div className={`composer${disabled ? " disabled" : ""}`}>
+      <textarea
+        ref={area}
+        rows={1}
+        value={voiceOn ? transcript : value}
+        readOnly={voiceOn}
+        disabled={disabled}
+        placeholder={
+          disabled ? "Upload a PDF to start asking questions" : voiceOn ? (listening ? "Listening…" : "Voice mode on") : "Ask anything about your document…"
+        }
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        aria-label="Your question"
       />
-      )}
-      <Button
-       type="primary"
-       size="large"
-       danger={isRecording}
-       onClick={chatModeClickHandler}
-       style={{ marginLeft: "5px" }}
-      >
-        Chat Mode: {isChatModeOn ? "On" : "Off"}
-      </Button>
-
-      {
-        isChatModeOn && <Button
-        type="primary"
-        size="large"
-        icon={<AudioOutlined />}
-        danger={isRecording}
-        onClick={recordingClickHandler}
-        style={{ marginLeft: "5px" }}
-      >
-            {isRecording ? "Recording..." : "Click to record"}
-        </Button>
-      }
+      <div className="composer-actions">
+        {browserSupportsSpeechRecognition && (
+          <button
+            type="button"
+            className={`ghost-btn${voiceOn ? " on" : ""}${listening ? " live" : ""}`}
+            onClick={toggleVoice}
+            disabled={disabled}
+            title={voiceOn ? "Turn voice mode off" : "Voice mode: speak your question, hear the answer"}
+          >
+            <IconMic />
+            <span className="ghost-label">{voiceOn ? (listening ? "Listening" : "Voice on") : "Voice"}</span>
+          </button>
+        )}
+        <button
+          type="button"
+          className="send-btn"
+          onClick={submit}
+          disabled={disabled || isLoading || !value.trim() || voiceOn}
+          aria-label="Send"
+        >
+          {isLoading ? <span className="spinner light" /> : <IconSend />}
+        </button>
+      </div>
     </div>
   );
 };
